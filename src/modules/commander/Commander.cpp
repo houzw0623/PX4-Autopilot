@@ -1961,14 +1961,26 @@ Commander::run()
 			/* ESCs status changed */
 			esc_status_check();
 
-		} else if (hrt_elapsed_time(&_last_esc_status_updated) > 700_ms) {
-			// Some DShot ESCs are unresponsive for ~550ms during their initialization, so we use a timeout higher than that
+		} else if (((_esc_connectiontype == esc_status_s::ESC_CONNECTION_TYPE_DSHOT)
+			    || (_esc_connectiontype == esc_status_s::ESC_CONNECTION_TYPE_CAN))) {
 
 			if (!_status_flags.condition_escs_error) {
-				mavlink_log_critical(&_mavlink_log_pub, "ESCs telemetry timeout");
+
+				if ((_last_esc_status_updated != 0) && (hrt_elapsed_time(&_last_esc_status_updated) > 700_ms)) {
+					/* Detect timeout after first telemetry packet received
+					 * Some DShot ESCs are unresponsive for ~550ms during their initialization, so we use a timeout higher than that
+					 */
+
+					mavlink_log_critical(&_mavlink_log_pub, "ESCs telemetry timeout");
+					_status_flags.condition_escs_error = true;
+
+				} else if (hrt_elapsed_time(&_last_esc_status_updated) > 5000_ms) {
+					// Detect if esc telemetry is not connected after reboot
+					mavlink_log_critical(&_mavlink_log_pub, "ESCs telemetry not connected");
+					_status_flags.condition_escs_error = true;
+				}
 			}
 
-			_status_flags.condition_escs_error = true;
 		}
 
 		estimator_check();
@@ -3944,6 +3956,10 @@ void Commander::esc_status_check()
 	esc_status_s esc_status{};
 
 	_esc_status_sub.copy(&esc_status);
+
+	if (_esc_connectiontype != esc_status.esc_connectiontype) {
+		_esc_connectiontype = esc_status.esc_connectiontype;
+	}
 
 	if (esc_status.esc_count > 0) {
 

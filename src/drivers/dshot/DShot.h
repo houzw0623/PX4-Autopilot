@@ -230,6 +230,7 @@ private:
 
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::DSHOT_CONFIG>)   _param_dshot_config,
+		(ParamInt<px4::params::DSHOT_TEL_CFG>)  _param_dshot_tel_cfg,
 		(ParamFloat<px4::params::DSHOT_MIN>)    _param_dshot_min,
 		(ParamInt<px4::params::MOT_POLE_COUNT>) _param_mot_pole_count
 	)

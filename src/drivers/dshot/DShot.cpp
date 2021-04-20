@@ -380,6 +380,14 @@ void DShot::init_telemetry(const char *device)
 	}
 
 	update_telemetry_num_motors();
+
+	// if DShot telemetry is enabled, publish it once to initialize esc_connectiontype
+	if (_param_dshot_tel_cfg.get() != 0) {
+		esc_status_s &esc_status = _telemetry->esc_status_pub.get();
+		esc_status.esc_connectiontype = esc_status_s::ESC_CONNECTION_TYPE_DSHOT;
+		esc_status.esc_count = 0;
+		_telemetry->esc_status_pub.update();
+	}
 }
 
 void DShot::handle_new_telemetry_data(const int motor_index, const DShotTelemetry::EscData &data)
@@ -401,7 +409,6 @@ void DShot::handle_new_telemetry_data(const int motor_index, const DShotTelemetr
 	// publish when motor index wraps (which is robust against motor timeouts)
 	if (motor_index <= _telemetry->last_motor_index) {
 		esc_status.timestamp = hrt_absolute_time();
-		esc_status.esc_connectiontype = esc_status_s::ESC_CONNECTION_TYPE_DSHOT;
 		esc_status.esc_count = _telemetry->handler.numMotors();
 		++esc_status.counter;
 		// FIXME: mark all ESC's as online, otherwise commander complains even for a single dropout
