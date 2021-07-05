@@ -38,6 +38,42 @@
 #include <RateControl.hpp>
 #include <px4_platform_common/defines.h>
 
+/** Begin SYSU Lab
+
+ * Used for Model Based Control.
+
+ * Model Based Controller outputs commands of thrust and torques around three-axis,
+
+ * while the commands send by px4 to low-level mixer and motors are normalized values in 0~1(thrust) or -1~1(torque).
+
+ * By converting F&T commands to normalized commands, we can implement Model Based Control methods readily,
+
+ * using existing mixer and saturation limiter.
+
+ */
+
+/* Model of QAV250 */
+
+#define HALF_LENGTH	0.101f
+
+#define HALF_WIDTH	0.080f
+
+
+#define C_M		0.0097f		// C_M = drag torque / motor thrust.
+
+
+#define I_XX		3e-3f
+
+#define I_YY		2.7e-3f
+
+#define I_ZZ		6.0e-3f
+
+#define GRA_ACC		9.8066f
+
+#define MAV_MASS	0.703f
+// End SYSU Lab
+
+
 using namespace matrix;
 
 void RateControl::setGains(const Vector3f &P, const Vector3f &I, const Vector3f &D)
@@ -64,7 +100,27 @@ Vector3f RateControl::update(const Vector3f &rate, const Vector3f &rate_sp, cons
 	Vector3f rate_error = rate_sp - rate;
 
 	// PID control with feed forward
-	const Vector3f torque = _gain_p.emult(rate_error) + _rate_int - _gain_d.emult(angular_accel) + _gain_ff.emult(rate_sp);
+	//const Vector3f torque = _gain_p.emult(rate_error) + _rate_int - _gain_d.emult(angular_accel) + _gain_ff.emult(rate_sp);
+
+	//Begin SYSU Lab
+	/* using PD controller for linear part */
+
+	Vector3f att_ctrl = _gain_p.emult(rate_error) - _gain_d.emult(angular_accel);
+	/* Compensate nonlinear gyro moment and ... */
+
+	Vector3f torque_affix, compen_torque, compen_control;
+	torque_affix(0) = (I_ZZ - I_YY) * rate(1) * rate(2);
+	torque_affix(1) = (I_XX - I_ZZ) * rate(0) * rate(2);
+	torque_affix(2) = (I_YY - I_XX) * rate(0) * rate(1);
+	compen_torque = torque_affix;
+
+	/* Convert torque command to normalized input */
+	compen_control = torque_to_attctrl(compen_torque);
+
+	/* Plus all control as output*/
+	const Vector3f torque = att_ctrl + compen_control;
+
+	//End SYSU Lab
 
 	// update integral only if we are not landed
 	if (!landed) {
@@ -112,3 +168,41 @@ void RateControl::getRateControlStatus(rate_ctrl_status_s &rate_ctrl_status)
 	rate_ctrl_status.pitchspeed_integ = _rate_int(1);
 	rate_ctrl_status.yawspeed_integ = _rate_int(2);
 }
+
+/* Added by SYSU Lab: Zhiwei Hou
+* Transform computed torques to equivalent normalized inputs
+*/
+
+Vector3f RateControl::torque_to_attctrl(matrix::Vector3f &computed_torque)
+
+{
+
+	/* motor maximum thrust model */
+	//float thrust_max = 5.488f * sinf(_battery_status.voltage_filtered_v * 0.4502f + 2.2241f);
+	float thrust_max = 5.488f;
+	/* mixer matrix */
+	float array_mixer[4][3] = {
+			{-0.707107f,  0.707107f,  1.0f},
+			{0.707107f,  -0.707107f,  1.0f},
+			{0.707107f,  0.707107f,  -1.0f},
+			{-0.707107f,  -0.707107f,  -1.0f}
+	};
+	Matrix<float, 4, 3> mixer_matrix(array_mixer);
+	/* matrix from thrust of four propellers to torque about 3-axes */
+	float array_torque[3][4] = {
+			{-HALF_LENGTH, HALF_LENGTH, HALF_LENGTH, -HALF_LENGTH},
+			{HALF_WIDTH, -HALF_WIDTH, HALF_WIDTH, -HALF_WIDTH},
+			{C_M, C_M, -C_M, -C_M}
+	};
+	Matrix<float, 3, 4> gentrq_matrix(array_torque);
+	/* input = (Gamma * Mixer * Tmax)^(-1) * computed_torque */
+
+	SquareMatrix<float, 3> gentrq_mixer = Matrix<float, 3, 3>(gentrq_matrix * mixer_matrix);
+	Matrix<float, 3, 3> trq_to_attctrl = gentrq_mixer.I() / thrust_max;
+	//PX4_INFO("trq_to_attctrl's diag = %d, %d, %d", (int)(trq_to_attctrl(0,0)*1000.0f), (int)(trq_to_attctrl(1,1)*1000.0f), (int)(trq_to_attctrl(2,2)*1000.0f));
+	return trq_to_attctrl * computed_torque;
+}
+
+
+
+

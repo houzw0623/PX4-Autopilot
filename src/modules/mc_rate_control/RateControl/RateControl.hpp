@@ -113,6 +113,11 @@ private:
 	// States
 	matrix::Vector3f _rate_int; ///< integral term of the rate controller
 
+	/* Added by SYSU Lab: Zhiwei Hou
+	 * Transform computed torques to equivalent normalized inputs
+	 */
+	matrix::Vector3f torque_to_attctrl(matrix::Vector3f &torque);
+
 	bool _mixer_saturation_positive[3] {};
 	bool _mixer_saturation_negative[3] {};
 };
